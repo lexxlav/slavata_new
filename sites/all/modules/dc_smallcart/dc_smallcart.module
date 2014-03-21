@@ -1,0 +1,114 @@
+<?php
+
+
+/**
+ *
+ * Implements hook_block_info()
+ * Creates Small Cart block
+ *
+ */
+function dc_smallcart_block_info() {
+  $blocks['small_cart'] = array(
+    'info' => t('Small cart'),
+	'cache' => DRUPAL_NO_CACHE,
+  );
+  
+  return $blocks;
+} //dc_smallcart_block_info
+
+
+/**
+ *
+ * Implements hook_block_view()
+ *
+ */
+function dc_smallcart_block_view($delta = '') {
+  $block = array();
+  
+  if ($delta == 'small_cart') {
+    //generate code for Small Cart block
+    $block['subject'] = t('Small cart');
+    $vars = array();    
+
+    global $user;
+    $order = commerce_cart_order_load($user->uid);
+    if (empty($order) || empty($order->commerce_line_items)) {
+      $vars['empty'] = TRUE;
+      $vars['message'] = t('Your shopping cart is empty.');
+    } else {
+      $wrapper = entity_metadata_wrapper('commerce_order', $order);
+      $line_items = $wrapper->commerce_line_items;
+      $total = commerce_line_items_total($line_items);
+      $quantity = commerce_line_items_quantity($line_items, commerce_product_line_item_types());
+      $vars['cart_link'] = l(t('Cart'), 'cart');
+      $vars['message'] = t('Your shopping cart contains <span class="shopping-cart-items-count">!items</span> on <span class="shopping-cart-money-total">!money</span> total', array('!items' => format_plural($quantity, '1 product', '@count products'), '!money' => commerce_currency_format($total['amount'], $total['currency_code'])));
+      $vars['checkout_link'] = l(t('Checkout'), 'checkout');
+    }
+    $block['content'] = theme('dc_smallcart', $vars);
+  }
+
+  return $block;
+} //dc_smallcart_block_view
+ 
+
+/**
+ * 
+ * Alters add to cart form to ajaxify it
+ * 
+ * @param array $form
+ * @param array $form_state
+ * @param string $form_id
+ */
+function dc_smallcart_form_alter(&$form, &$form_state, $form_id) {
+  //add to cart
+  if (strstr($form_id, 'commerce_cart_add_to_cart_form')) {
+    $form['submit'] = array(
+      '#value' => t('Add to Cart'),
+      '#type' => 'submit',
+      '#ajax' => array(
+        'callback' => 'smallcart_ajax_cart_form',
+        'wrapper' => 'block-commerce-cart-cart',
+        'method' => 'replace',
+        'effect' => 'fade',
+        'progress' => array('type' => 'throbber', 'message' => ''),
+      ),
+    );
+  }
+} //dc_smallcart_form_alter
+
+
+/**
+ * 
+ * Callback to ajaxify Add to Cart button
+ * 
+ * @param array $form
+ * @param array $form_state
+ */
+function smallcart_ajax_cart_form($form, $form_state){
+  global $user;
+  $form_state['rebuild'] = FALSE;
+  $block = block_load('dc_smallcart', 'small_cart');
+  $block_content = _block_render_blocks(array($block));
+  $build = _block_get_renderable_array($block_content);
+  $output = drupal_render($build);
+
+  $messages = theme_status_messages(array('display' => 'status'));
+
+  $commands = array();
+  $commands[] = ajax_command_replace('#block-dc_smallcart-small_cart', $output);
+  $commands[] = ajax_command_after('#breadcrumb', $messages);
+  return array('#type' => 'ajax', '#commands' => $commands);
+} //smallcart_ajax_cart_form
+
+
+/**
+ * Implements hook_theme().
+ */
+function dc_smallcart_theme() {
+  return array(
+    'dc_smallcart' => array(
+      'variables' => array('empty' => FALSE, 'cart_link' => NULL, 'checkout_link' => NULL, 'message' => NULL),
+      'template' => 'dc_smallcart',
+    ),
+  );
+}

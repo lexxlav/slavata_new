@@ -1,0 +1,18 @@
+msgid "Your shopping cart is empty."
+msgstr "Корзина пуста"
+
+#: /cart
+msgid ""
+"Your shopping cart contains <span "
+"class=\"shopping-cart-items-count\">!items</span> on <span "
+"class=\"shopping-cart-money-total\">!money</span> total"
+msgstr ""
+"В корзине всего <span "
+"class=\"shopping-cart-items-count\">!items</span> на сумму "
+"<span class=\"shopping-cart-money-total\">!money</span>"
+
+msgid "1 product"
+msgid_plural "@count products"
+msgstr[0] "@count товар"
+msgstr[1] "@count товара"
+msgstr[2] "@count товаров"

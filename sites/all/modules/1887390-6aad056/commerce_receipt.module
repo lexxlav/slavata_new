@@ -1,0 +1,264 @@
+<?php
+
+module_load_include('inc', 'commerce_receipt', 'commerce_receipt.tokens');
+
+function commerce_receipt_permission(){  
+  return array(
+    'access own commerce receipt' => array(
+      'title' => t('View own bank receipt'),
+    ),
+    'access all commerce receipts' => array(
+      'title' => t('View all bank receipts'),
+    ),
+  ); 
+}
+
+function commerce_receipt_view_access($uid) {  
+   global $user;
+   $access = FALSE;   
+   if ($user->uid == $uid && user_access('access own commerce receipt')) $access = TRUE;
+   if (user_access('access all commerce receipts')) $access = TRUE;
+   return $access;   
+}
+
+function commerce_receipt_menu() {  
+  $items['user/%/orders/%/receipt'] = array(   
+    'title' => 'Print receipt',
+    'page callback' => 'commerce_receipt_template',
+    'page arguments' => array(3),
+    'access callback' => 'commerce_receipt_view_access',
+    'access arguments' => array(1),
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  return $items;
+}
+
+function commerce_receipt_commerce_payment_method_info() {
+  $payment_methods = array();
+  $payment_methods['commerce_receipt'] = array(
+    'base' => 'commerce_receipt',
+    'title' => t('Bank receipt'),
+    'short_title' => t('Bank receipt'),
+    'display_title' => t('Bank receipt'),
+    'description' => t('Payment using bank receipts'),
+  );
+  return $payment_methods;
+}
+
+function commerce_receipt_settings_form($settings = NULL) {
+  $form = array();
+  $def_currency = commerce_default_currency();
+  $settings = (array) $settings + array(
+    'bank_name' => '',
+    'bank_mfo' => '',
+    'payee_corr' => '',
+    'payee_name' => '',
+    'payee_inn' => '',
+    'payee_account' => '',
+    'payee_bik' => '',
+    'template' => array('UA.tpl.php'),
+    'status' => array('pending'),
+    'currency' => array($def_currency),
+  ); 
+  $text = '<div style="background: #D7DEE4; padding: 10px;">' . t('Templates for receipt located here: <em>@path</em>', array('@path' => drupal_get_path('module', 'commerce_receipt') . '/templates'))  . '<br />';
+  $text .= t('Available tokens which you can use in these templates listed !here', array('!here' => l(t('here'), 'admin/help/token'))) . '</div>';
+  $form['receipt_help'] = array(  
+    '#markup' => $text,
+  );  
+  $form['bank_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Bank name'),
+    '#description' => t('Official name of the bank'),
+    '#default_value' => $settings['bank_name'],
+  );
+  $form['bank_mfo'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Bank MFO'),
+    '#description' => t('MFO of the bank (numeric)'),
+    '#default_value' => $settings['bank_mfo'],
+  );
+  $form['payee_corr'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Correspondent account'),
+    '#description' => t('Correspondent account of the payee'),
+    '#default_value' => $settings['payee_corr'],
+  );
+  $form['payee_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Payee name'),
+    '#description' => t('Official name of the payee'),
+    '#default_value' => $settings['payee_name'],
+  );
+  $form['payee_inn'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Payee INN'),
+    '#description' => t('Tax identification number of the payee'),
+    '#default_value' => $settings['payee_inn'],
+  );
+  $form['payee_account'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Payee account'),
+    '#description' => t('Bank account of the payee'),
+    '#default_value' => $settings['payee_account'],
+  );
+  $form['payee_bik'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Payee BIK'),
+    '#description' => t('Bank identification code of the payee'),
+    '#default_value' => $settings['payee_bik'],
+  );
+  $form['template'] = array(
+    '#type' => 'select',
+    '#title' => t('Template'),
+    '#description' => t('Choose a receipt template'),
+    '#options' => commerce_receipt_get_templates(),
+    '#default_value' => $settings['template'],
+  ); 
+  $form['status'] = array(
+    '#type' => 'select',
+    '#title' => t('Status'),
+    '#description' => t('Choose order status after customer sent the order'),
+    '#options' => commerce_receipt_statuses(),
+    '#default_value' => $settings['status'],
+  );
+  $form['currency'] = array(
+    '#type' => 'select',
+    '#title' => t('Currency'),
+    '#description' => t('Convert default store currency to currency, defined in your enabled template'),
+    '#options' => commerce_receipt_select_currency(),
+    '#default_value' => $settings['currency'],
+  );
+  $form['#submit'][] = variable_set('commerce_receipt_settings', $form);
+  return $form;
+}
+
+function commerce_receipt_get_templates() {   
+  $options = array();
+  $dir = drupal_get_path('module', 'commerce_receipt') . '/templates';
+  $templates = file_scan_directory($dir, '/.*\.tpl.php$/');  
+    if (!empty($templates)) {
+      foreach ($templates as $template) {
+        $options[$template->filename] = $template->name;
+      }  
+    } 
+    else { 
+      drupal_set_message('No templates found!', 'error'); 
+    }
+  return $options;
+}
+
+function commerce_receipt_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+  $form = array();
+  $markup = commerce_receipt_button($order->order_id, $order->uid);
+  $markup .= '<div class="receipt-description-customer">' . t('You have to pay on this receipt in any nearest bank before your order will be shipped') . '</div>';
+  $form['print_receipt'] = array(
+    '#markup' => $markup
+  );
+  return $form;
+}
+
+function commerce_receipt_submit_form_submit($payment_method, $pane_form, $pane_values, $order, $charge) { 
+  $transaction = commerce_payment_transaction_new('commerce_receipt', $order->order_id);
+  $transaction->instance_id = $payment_method['instance_id'];
+  $transaction->amount = $charge['amount'];
+  $transaction->currency_code = $charge['currency_code'];
+  $transaction->status = commerce_receipt_get_settings('status');
+  $transaction->message = '';
+  $transaction->message_variables = array();
+  commerce_payment_transaction_save($transaction);
+}
+
+function commerce_receipt_template($order_id) {
+  $order = commerce_order_load($order_id);  
+  $variables = variable_get('commerce_receipt_settings', '');
+  $filename = $variables['template']['#default_value'];  
+  $file = drupal_get_path('module', 'commerce_receipt') . '/templates/' . $filename; 
+  if (file_exists($file)) {
+    $output = file_get_contents($file);
+    $output = token_replace($output, $data = array('commerce-receipt' => $order));   
+    $output .= '<div id="receipt-buttons">
+                <div class="print-receipt">
+                <input type="button" value="' . t('Print receipt') . '" onclick="window.print();" />
+                </div>
+                <div class="close-receipt">
+                <input type="button" value="' . t('Close window') . '" onclick="window.close();" />
+                </div>
+                </div>';
+  }
+  else {
+    $output = t('No templates found!');
+  }   
+  print $output;
+}
+
+function commerce_receipt_statuses() {
+  $options = array();  
+  $statuses = commerce_payment_transaction_statuses();
+  if(!empty($statuses)) {
+    foreach($statuses as $status) {
+      $options[$status['status']] = $status['title']; 
+    }
+  }
+  return $options;
+}
+
+function commerce_receipt_button($order_id = NULL, $user_id = NULL) {
+  $output = '';
+  if ($order_id) {
+    if ($user_id) {
+      $uid = $user_id;
+    }
+    else {
+      $order = commerce_order_load($order_id);
+      $uid = $order->uid;	
+    }
+    $path = base_path() . 'user/' . $uid . '/orders/' . $order_id . '/receipt';    
+    $js = 'function printReceipt() { window.open("' . $path . '", "' . t('Print receipt') . '", "location=0,status=0,scrollbars=1,width=700,height=800,left=0,top=0");}';     
+    //Yes, I hate it too.
+    $output = '<SCRIPT type="text/javascript">' . $js . '</SCRIPT>';
+    $output .= '<div id="receipt">
+                <div class="receipt-button">
+                <input type="button" value="' . t('Print receipt') .'" onclick="printReceipt();" />
+                </div>
+                <div class="receipt-description">' . t('Click on button above to see and print your receipt') . '</div>
+                </div>';
+  }
+  return $output;
+}
+
+function commerce_receipt_preprocess(&$vars, $hook) {
+  if ($hook == 'block') {
+    $customer_order_overview = (arg(0) == 'user' && arg(2) == 'orders' && is_numeric(arg(3)) && !arg(4)) ? TRUE : FALSE;
+    $admin_order_overview = (arg(0) == 'admin' && arg(2) == 'orders' && is_numeric(arg(3)) && (!arg(4) || arg(4) == 'view')) ? TRUE : FALSE;
+    $admin_payment_overview = (arg(0) == 'admin' && arg(2) == 'orders' && is_numeric(arg(3)) && arg(6) == 'view') ? TRUE : FALSE;
+    if ($vars['elements']['#block']->delta == 'main' && ($admin_order_overview || $admin_payment_overview)) {
+      $vars['content'] .= commerce_receipt_button($order_id = arg(3), $user_id = NULL);
+    }
+    if ($vars['elements']['#block']->delta == 'main' && $customer_order_overview) {
+      $vars['content'] .= commerce_receipt_button($order_id = arg(3), $user_id = NULL);
+    }
+  }
+}
+
+function commerce_receipt_select_currency() {
+  $options = array();
+  $currencies = commerce_currencies(TRUE, FALSE);
+  foreach ($currencies as $currency) {
+    $options[$currency['code']] = $currency['name'];
+  }
+  return $options;
+}
+
+function commerce_receipt_get_settings($settings) {
+  $output = '';
+  $vars = variable_get('commerce_receipt_settings', '');
+  if (!empty($vars)) {
+    foreach ($vars as $key => $var) {
+      if ($key == $settings) {
+        $output = $vars[$key]['#default_value'];
+        break;
+      }  
+    }
+  } 
+  return $output;
+}

@@ -1,0 +1,7 @@
+name = Drupal Commerce small cart block
+description = Implementation of small shopping cart showing only items quantity and order total instead of full items table
+package = "Commerce (contrib)"
+core = 7.x
+version = "7.x-1.0"
+dependencies[] = commerce_cart 
+dependencies[] = dc_cart_ajax
